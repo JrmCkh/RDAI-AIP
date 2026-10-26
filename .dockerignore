@@ -1,0 +1,11 @@
+.git
+RDAI-AIP
+.venv
+venv
+__pycache__
+*.pyc
+.pytest_cache
+tests
+*.pt
+runs
+.local_models

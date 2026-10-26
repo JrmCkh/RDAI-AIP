@@ -1,0 +1,15 @@
+services:
+  yolo-api:
+    build: .
+    image: yolo-fastapi:latest
+    ports:
+      - "8000:8000"
+    environment:
+      DEFAULT_CONF: "0.25"
+      DEFAULT_IOU: "0.45"
+      IMG_SIZE: "640"
+      # To serve your own weights, mount them and point MODEL_PATH at the file:
+      # MODEL_PATH: /models/best.pt
+    # volumes:
+    #   - ./models:/models:ro
+    restart: unless-stopped
