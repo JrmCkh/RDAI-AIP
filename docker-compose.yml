@@ -8,10 +8,8 @@ services:
       DEFAULT_CONF: "0.25"
       DEFAULT_IOU: "0.45"
       IMG_SIZE: "640"
-      # Model used when a request doesn't pass ?model=... (switch at runtime with PUT /model)
       DEFAULT_MODEL: "yolo11n"
-      # Models to load, as name=path pairs. To add your own weights, mount them and append:
-      # MODELS: "yolo11n=/app/models/yolo11n.pt,yolo11s=/app/models/yolo11s.pt,custom=/models/best.pt"
-    # volumes:
-    #   - ./models:/models:ro
+    # Every .pt file in ./models is served. Add, replace or delete files while it's running; no restart needed.
+    volumes:
+      - ./models:/app/models:ro
     restart: unless-stopped

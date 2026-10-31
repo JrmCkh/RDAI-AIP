@@ -4,7 +4,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     YOLO_CONFIG_DIR=/app/.ultralytics \
-    MODELS=yolo11n=/app/models/yolo11n.pt,yolo11s=/app/models/yolo11s.pt \
+    MODELS_DIR=/app/models \
     DEVICE=cpu
 
 # OpenCV (pulled in by ultralytics) needs these shared libraries
