@@ -4,5 +4,8 @@ __pycache__/
 *.pyc
 .pytest_cache/
 *.pt
+# Ship the bundled test models so people can try them after cloning
+!models/*.pt
 runs/
-.local_models/
+# Ultralytics per-machine settings cache
+models/cfg/

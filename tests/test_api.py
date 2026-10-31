@@ -21,14 +21,47 @@ def _image_bytes(path=ASSETS / "bus.jpg") -> bytes:
 def test_health(client):
     r = client.get("/health")
     assert r.status_code == 200
-    assert r.json() == {"status": "ok", "model_loaded": True}
+    assert r.json() == {"status": "ok", "models_loaded": ["yolo11n", "yolo11s"]}
 
 
 def test_model_info(client):
     r = client.get("/model")
     assert r.status_code == 200
+    assert r.json()["name"] == "yolo11n" and r.json()["active"] is True
     assert r.json()["task"] == "detect"
     assert r.json()["num_classes"] == 80
+
+
+def test_list_models(client):
+    r = client.get("/models")
+    assert r.status_code == 200
+    assert r.json()["active"] == "yolo11n"
+    assert [m["name"] for m in r.json()["models"]] == ["yolo11n", "yolo11s"]
+
+
+def test_predict_with_model_param(client):
+    r = client.post(
+        "/predict", params={"model": "yolo11s"}, files={"file": ("bus.jpg", _image_bytes(), "image/jpeg")}
+    )
+    assert r.status_code == 200
+    assert r.json()["model"] == "yolo11s"
+    assert {"person", "bus"} <= {d["class_name"] for d in r.json()["detections"]}
+
+
+def test_switch_active_model(client):
+    try:
+        r = client.put("/model", json={"name": "yolo11s"})
+        assert r.status_code == 200 and r.json() == {"active": "yolo11s"}
+        r = client.post("/predict", files={"file": ("bus.jpg", _image_bytes(), "image/jpeg")})
+        assert r.json()["model"] == "yolo11s"
+    finally:
+        client.put("/model", json={"name": "yolo11n"})
+
+
+def test_unknown_model_rejected(client):
+    assert client.put("/model", json={"name": "nope"}).status_code == 404
+    r = client.post("/predict", params={"model": "nope"}, files={"file": ("bus.jpg", _image_bytes(), "image/jpeg")})
+    assert r.status_code == 404
 
 
 def test_predict_detects_people_and_bus(client):
@@ -52,6 +85,7 @@ def test_predict_image_returns_jpeg(client):
     r = client.post("/predict/image", files={"file": ("bus.jpg", _image_bytes(), "image/jpeg")})
     assert r.status_code == 200
     assert r.headers["content-type"] == "image/jpeg"
+    assert r.headers["x-model"] == "yolo11n"
     Image.open(io.BytesIO(r.content)).verify()
 
 

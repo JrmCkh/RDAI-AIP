@@ -4,7 +4,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     YOLO_CONFIG_DIR=/app/.ultralytics \
-    MODEL_PATH=/app/models/yolo11n.pt \
+    MODELS=yolo11n=/app/models/yolo11n.pt,yolo11s=/app/models/yolo11s.pt \
     DEVICE=cpu
 
 # OpenCV (pulled in by ultralytics) needs these shared libraries
@@ -23,7 +23,7 @@ RUN pip install -r requirements.txt
 # Bake the weights into the image so the container starts without network access
 RUN mkdir -p /app/models \
     && cd /app/models \
-    && python -c "from ultralytics import YOLO; YOLO('yolo11n.pt')"
+    && python -c "from ultralytics import YOLO; YOLO('yolo11n.pt'); YOLO('yolo11s.pt')"
 
 COPY app ./app
 

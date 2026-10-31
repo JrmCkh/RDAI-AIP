@@ -7,7 +7,7 @@ import cv2
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.responses import Response
 from PIL import Image, UnidentifiedImageError
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from ultralytics import YOLO
 
 from app.config import settings
@@ -28,6 +28,7 @@ class Detection(BaseModel):
 
 
 class PredictionResponse(BaseModel):
+    model: str
     filename: str | None
     image_width: int
     image_height: int
@@ -35,20 +36,33 @@ class PredictionResponse(BaseModel):
     detections: list[Detection]
 
 
+class ActiveModelRequest(BaseModel):
+    name: str = Field(..., description="Name of a loaded model (see GET /models).")
+
+
+# state["models"]: {name: YOLO}; state["active"]: name of the model used when a request names none.
 state: dict = {}
 # Ultralytics models are not guaranteed thread-safe; sync endpoints run in a threadpool.
-model_lock = threading.Lock()
+# One lock per model so requests to different models can run concurrently.
+model_locks: dict[str, threading.Lock] = {}
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    model = YOLO(settings.model_path)
-    model.to(settings.device)
-    # The first predict call initialises the predictor; do it now so no request pays that cost.
-    model.predict(Image.new("RGB", (settings.img_size, settings.img_size)), device=settings.device, verbose=False)
-    state["model"] = model
+    warmup = Image.new("RGB", (settings.img_size, settings.img_size))
+    models = {}
+    for name, path in settings.models.items():
+        model = YOLO(path)
+        model.to(settings.device)
+        # The first predict call initialises the predictor; do it now so no request pays that cost.
+        model.predict(warmup, device=settings.device, verbose=False)
+        models[name] = model
+        model_locks[name] = threading.Lock()
+    state["models"] = models
+    state["active"] = settings.default_model
     yield
     state.clear()
+    model_locks.clear()
 
 
 app = FastAPI(
@@ -71,10 +85,20 @@ def _read_image(file: UploadFile) -> Image.Image:
         raise HTTPException(status_code=415, detail="File is not a supported image.")
 
 
-def _infer(image: Image.Image, conf: float, iou: float):
-    with model_lock:
+def _resolve_model(name: str | None) -> str:
+    name = name or state["active"]
+    if name not in state["models"]:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Unknown model {name!r}. Available: {', '.join(state['models'])}.",
+        )
+    return name
+
+
+def _infer(name: str, image: Image.Image, conf: float, iou: float):
+    with model_locks[name]:
         start = time.perf_counter()
-        result = state["model"].predict(
+        result = state["models"][name].predict(
             image, conf=conf, iou=iou, imgsz=settings.img_size, device=settings.device, verbose=False
         )[0]
         elapsed_ms = (time.perf_counter() - start) * 1000
@@ -83,19 +107,43 @@ def _infer(image: Image.Image, conf: float, iou: float):
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "model_loaded": "model" in state}
+    return {"status": "ok", "models_loaded": list(state.get("models", {}))}
+
+
+@app.get("/models")
+def list_models():
+    return {
+        "active": state["active"],
+        "models": [
+            {"name": name, "model_path": settings.models[name], "task": m.task, "num_classes": len(m.names)}
+            for name, m in state["models"].items()
+        ],
+    }
 
 
 @app.get("/model")
-def model_info():
-    model = state["model"]
+def model_info(model: str | None = Query(None, description="Model name; defaults to the active model.")):
+    name = _resolve_model(model)
+    m = state["models"][name]
     return {
-        "model_path": settings.model_path,
-        "task": model.task,
+        "name": name,
+        "active": name == state["active"],
+        "model_path": settings.models[name],
+        "task": m.task,
         "device": settings.device,
-        "num_classes": len(model.names),
-        "classes": model.names,
+        "num_classes": len(m.names),
+        "classes": m.names,
     }
+
+
+@app.put("/model")
+def set_active_model(body: ActiveModelRequest):
+    """Switch the model used by /predict endpoints when no `model` query param is given."""
+    state["active"] = _resolve_model(body.name)
+    return {"active": state["active"]}
+
+
+MODEL_QUERY = Query(None, description="Model name to use; defaults to the active model (see GET /models).")
 
 
 @app.post("/predict", response_model=PredictionResponse)
@@ -103,9 +151,11 @@ def predict(
     file: UploadFile = File(...),
     conf: float = Query(settings.default_conf, ge=0.0, le=1.0),
     iou: float = Query(settings.default_iou, ge=0.0, le=1.0),
+    model: str | None = MODEL_QUERY,
 ):
+    name = _resolve_model(model)
     image = _read_image(file)
-    result, elapsed_ms = _infer(image, conf, iou)
+    result, elapsed_ms = _infer(name, image, conf, iou)
 
     detections = [
         Detection(
@@ -119,6 +169,7 @@ def predict(
         )
     ]
     return PredictionResponse(
+        model=name,
         filename=file.filename,
         image_width=image.width,
         image_height=image.height,
@@ -132,11 +183,13 @@ def predict_image(
     file: UploadFile = File(...),
     conf: float = Query(settings.default_conf, ge=0.0, le=1.0),
     iou: float = Query(settings.default_iou, ge=0.0, le=1.0),
+    model: str | None = MODEL_QUERY,
 ):
+    name = _resolve_model(model)
     image = _read_image(file)
-    result, _ = _infer(image, conf, iou)
+    result, _ = _infer(name, image, conf, iou)
     annotated_bgr = result.plot()
     ok, buffer = cv2.imencode(".jpg", annotated_bgr)
     if not ok:
         raise HTTPException(status_code=500, detail="Failed to encode annotated image.")
-    return Response(content=buffer.tobytes(), media_type="image/jpeg")
+    return Response(content=buffer.tobytes(), media_type="image/jpeg", headers={"X-Model": name})
