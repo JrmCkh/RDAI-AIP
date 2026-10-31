@@ -10,6 +10,24 @@ docker compose up --build
 
 Then open the interactive docs at <http://localhost:8000/docs> to test out the endpoints.
 
+## Test images
+
+The `test_imgs/` folder has sample images to upload to the `/predict` endpoints:
+
+| Image           | What's in it                   |
+|-----------------|--------------------------------|
+| `bus.jpg`       | A bus and people on a street   |
+| `people.jpg`    | Two people in suits, with ties |
+| `cats.jpg`      | Two cats and a remote on a couch |
+| `bear.jpg`      | A bear                         |
+| `stop_sign.jpg` | A stop sign and a truck        |
+
+Try the same image with `?model=yolo11n` and `?model=yolo11s`. On `people.jpg` and `stop_sign.jpg`
+the two models detect different things.
+
+`bus.jpg` and `people.jpg` are the sample images that ship with Ultralytics. The others are from the
+[COCO 2017 validation set](https://cocodataset.org/).
+
 ## Endpoints
 
 | Method | Path             | Description                                              |

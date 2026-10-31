@@ -9,3 +9,4 @@ tests
 *.pt
 runs
 models
+test_imgs
